@@ -20,8 +20,8 @@ const verifyJWT = (req, res, next) => {
   //bearer token
   const token = authorization.split(' ')[1];
 
-  jwt.verify(token, process.env.ACCESS_TOKEN_SECRET, (err,decoded) => {
-    if(err){
+  jwt.verify(token, process.env.ACCESS_TOKEN_SECRET, (err, decoded) => {
+    if (err) {
       return res.status(401).send({ error: true, message: 'unauthorized access' })
     }
     req.decoded = decoded;
@@ -61,9 +61,27 @@ async function run() {
       res.send({ token });
     })
 
+    // Warning: use verifyJWT before using verifyAdmin
+    const verifyAdmin = async (req, res, next) => {
+      const email = req.decoded.email;
+      const query = { email: email }
+      const user = await usersCollection.findOne(query);
+      if (user?.role !== 'admin') {
+        return res.status(403).send({ error: true, message: 'forbidden message' });
+      }
+      next();
+    }
 
-    //User related apis
-    app.get('/users', async (req, res) => {
+    /**
+     * 0. do not show secure links to those who should not see the links
+     * 1. use jwt token: verifyJWT
+     * 2. use verifyAdmin middleware
+    */
+
+
+
+    // users related apis
+    app.get('/users', verifyJWT, verifyAdmin, async (req, res) => {
       const result = await usersCollection.find().toArray();
       res.send(result);
     });
@@ -71,20 +89,36 @@ async function run() {
 
     app.post('/users', async (req, res) => {
       const user = req.body;
-      console.log(user);
       const query = { email: user.email }
       const existingUser = await usersCollection.findOne(query);
-      console.log('existingUser', existingUser);
+
       if (existingUser) {
-        return res.send({ message: 'Usr already exists' })
+        return res.send({ message: 'user already exists' })
       }
+
       const result = await usersCollection.insertOne(user);
       res.send(result);
     });
 
+    // security layer: verifyJWT
+    // email same
+    // check admin
+    app.get('/users/admin/:email', verifyJWT, async (req, res) => {
+      const email = req.params.email;
+
+      if (req.decoded.email !== email) {
+        res.send({ admin: false })
+      }
+
+      const query = { email: email }
+      const user = await usersCollection.findOne(query);
+      const result = { admin: user?.role === 'admin' }
+      res.send(result);
+    })
 
     app.patch('/users/admin/:id', async (req, res) => {
       const id = req.params.id;
+      console.log(id);
       const filter = { _id: new ObjectId(id) };
       const updateDoc = {
         $set: {
@@ -94,6 +128,7 @@ async function run() {
 
       const result = await usersCollection.updateOne(filter, updateDoc);
       res.send(result);
+
     })
 
     // menu related apis
@@ -117,8 +152,8 @@ async function run() {
       }
 
       const decodedEmail = req.decoded.email;
-      if(email != decodedEmail){
-        return res.status(401).send({ error: true, message: 'Forbidden access' })
+      if (email !== decodedEmail) {
+        return res.status(403).send({ error: true, message: 'Forbidden access' })
       }
 
       const query = { email: email };
@@ -162,3 +197,16 @@ app.listen(port, () => {
 })
 
 
+
+/**
+ * --------------------------------
+ *      NAMING CONVENTION
+ * --------------------------------
+ * users : userCollection
+ * app.get('/users')
+ * app.get('/users/:id')
+ * app.post('/users')
+ * app.patch('/users/:id')
+ * app.put('/users/:id')
+ * app.delete('/users/:id')
+*/
